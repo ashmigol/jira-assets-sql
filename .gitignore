@@ -1,0 +1,16 @@
+# local data: contains user emails and object data
+*.db
+*.db-journal
+*.log
+backups/
+history
+.env
+
+# python
+__pycache__/
+*.egg-info/
+.venv*/
+.pytest_cache/
+.ruff_cache/
+build/
+dist/
