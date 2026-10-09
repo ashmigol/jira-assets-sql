@@ -26,7 +26,7 @@ Backup: ~/.local/share/assets/backups/assets-42-20261008-120102.json
 1/1 applied.
 ```
 
-Python ≥ 3.9, no dependencies.
+Python ≥ 3.9. The only dependency is `prompt_toolkit`, used for the interactive input; without it the shell falls back to plain readline.
 
 ## Install
 
@@ -68,6 +68,19 @@ assets apply [--allow-delete] [--yes]
 Shell commands: `.tables`, `.schema [table]`, `.sync`, `.plan`, `.apply [--allow-delete]`, `.reset`,
 `.aql <query>` (live AQL), `.history [N|text]` (previous commands), `.log [N]` (changes applied to Jira), `.mode table|csv|vertical`, `.pager on|off`, `.help`. End a query with `\G` instead
 of `;` for vertical output. MySQL-style `show tables;` and `describe <table>;` work too.
+
+### Typing help
+
+Suggestions show up as you type, much like in Warp or an IDE:
+
+* `INSERT INTO roles ` shows the full column list in grey; **→** or **Tab** inserts it.
+* A menu lists tables after `FROM` / `INTO` / `UPDATE`, the columns of the table you're working with, keywords and
+  dot-commands. Pick with **Tab** / **↓**.
+* Inside a quoted value it suggests what fits that column: select options (`criticality = '` → `Critical`, `Low`…),
+  labels of referenced objects (`system = 'pan` → `Pandadoc`) and known user emails.
+* The bottom line lists the editable columns of the current table: `*` marks required columns, `→table` a reference,
+  and the type is shown for booleans, users and selects.
+* Ctrl+C clears the current statement, Ctrl+D or `.quit` exits. ↑ and Ctrl+R search the history.
 
 ### Table model
 

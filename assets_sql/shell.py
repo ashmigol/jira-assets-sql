@@ -7,13 +7,10 @@ import sqlite3
 
 from . import output, store
 from .api import ApiError
+from .complete import Context
 from .output import print_table
 from .plan import apply, compute_plan, open_fresh, show_plan
-
-try:
-    import readline
-except ImportError:  # Windows
-    readline = None
+from .reader import make_reader
 
 HELP = """
 SQL (end with ;)          SELECT / INSERT / UPDATE / DELETE on the local copy
@@ -29,7 +26,9 @@ SQL (end with ;)          SELECT / INSERT / UPDATE / DELETE on the local copy
 show tables;  describe <table>;  show columns from <table>;   MySQL-style shortcuts
 .history [N | text]       your previous commands (last N, default 30, or those containing text); also ↑ and Ctrl+R
 .log [N]                  changes applied to Jira (changes.log), last N (default 20)
-.quit                     exit
+.quit                     exit (or Ctrl+D); Ctrl+C clears the current statement
+Typing: suggestions appear as you type — Tab or → accepts the grey hint, Tab/↓ picks from the menu;
+         the bottom line lists the columns of the table you're working with.
 
 Columns are snake_case. A reference column holds the label of the referenced object, <column>_key holds its
 key; set either one (a key also works in the label column). Users = email. Booleans = 1/0 (true/false work too).
@@ -113,15 +112,8 @@ def live_aql(client, meta, q, mode):
         print(f"(showing first {len(rows)} of {d.get('total')})")
 
 
-def history_lines():
-    if not readline:
-        return []
-    items = (readline.get_history_item(i) for i in range(1, readline.get_current_history_length() + 1))
-    return [h for h in items if h]
-
-
-def show_history(arg):
-    lines = list(enumerate(history_lines(), 1))
+def show_history(lines, arg):
+    lines = list(enumerate(lines, 1))
     if arg and not arg.isdigit():
         lines = [(n, h) for n, h in lines if arg.lower() in h.lower()]
     else:
@@ -147,10 +139,6 @@ def show_log(cfg, arg):
                  for e in entries])
 
 
-def save_history(cfg):
-    save_history(cfg)
-
-
 SHORT_DESCRIBE = re.compile(r"(?:describe|desc|show columns from|show columns in) (\w+)")
 
 
@@ -168,7 +156,7 @@ def handle_sql(db, meta, sql, mode, writable):
         run_sql(db, meta, sql, mode, writable)
 
 
-def shell(cfg, client, schema, auto_sync=True):
+def shell(cfg, client, schema, auto_sync=True, fancy=True):
     db, meta = open_fresh(cfg, client, schema) if auto_sync else store.open_db(cfg, client, schema)
     writable = cfg.is_writable(schema)
     synced = db.execute("SELECT v FROM _meta WHERE k='synced'").fetchone()[0]
@@ -178,29 +166,21 @@ def shell(cfg, client, schema, auto_sync=True):
     if pending:
         print(f"{pending} unapplied local change(s) — .plan to review")
     print("Type .help for commands, SQL ends with ';'")
-    if readline:
-        try:
-            readline.read_history_file(cfg.history_path)
-        except OSError:
-            pass
-        readline.parse_and_bind("tab: complete")
-        words = [t["table"] for t in meta] + [c["col"] for t in meta for c in t["cols"]] + \
-            "SELECT FROM WHERE JOIN ON AND OR ORDER BY GROUP INSERT INTO VALUES UPDATE SET DELETE LIKE IS NULL NOT COUNT".split()
-        readline.set_completer(lambda text, i: ([w for w in words if w.lower().startswith(text.lower())] + [None])[i])
+    ctx = Context(meta, db)
+    reader = make_reader(cfg, ctx, fancy=fancy)
     mode, buf = "table", ""
     while True:
         try:
-            line = input(f"assets[{schema}]> " if not buf else "        ...> ")
-        except (EOFError, KeyboardInterrupt):
+            line = reader.read(f"assets[{schema}]> " if not buf else "        ...> ", buf)
+        except KeyboardInterrupt:  # Ctrl+C: drop the current statement, keep the shell
+            buf = ""
+            continue
+        except EOFError:  # Ctrl+D
             print()
-            if buf:
-                buf = ""
-                continue
             break
         s = line.strip()
         if not buf and not s:
             continue
-        save_history(cfg)  # every command, so closing the terminal doesn't lose the session
         if not buf and s.startswith("."):
             cmd, _, arg = s.partition(" ")
             arg = arg.strip()
@@ -215,11 +195,13 @@ def shell(cfg, client, schema, auto_sync=True):
                     describe(meta, arg or None)
                 elif cmd == ".sync":
                     meta, n = store.sync(db, client, schema)
+                    ctx.reset(meta)
                     print(f"Synced: {n} objects.")
                 elif cmd == ".plan":
                     show_plan(compute_plan(db, meta))
                 elif cmd == ".apply":
                     apply(cfg, client, db, meta, schema, allow_delete="--allow-delete" in arg)
+                    ctx.reset(meta)
                 elif cmd == ".reset":
                     store.reset(db, meta)
                     print("Local changes discarded.")
@@ -229,7 +211,7 @@ def shell(cfg, client, schema, auto_sync=True):
                     mode = arg if arg in ("table", "csv", "vertical") else mode
                     print(f"mode = {mode}")
                 elif cmd == ".history":
-                    show_history(arg)
+                    show_history(reader.lines(), arg)
                 elif cmd == ".log":
                     show_log(cfg, arg)
                 elif cmd == ".pager":
@@ -247,8 +229,4 @@ def shell(cfg, client, schema, auto_sync=True):
         if sqlite3.complete_statement(buf):
             sql, buf = buf.strip(), ""
             handle_sql(db, meta, sql, "vertical" if vertical else mode, writable)
-    if readline:
-        try:
-            readline.write_history_file(cfg.history_path)
-        except OSError:
-            pass
+    reader.save()
