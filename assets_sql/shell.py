@@ -80,7 +80,7 @@ def run_sql(db, meta, sql, mode, writable):
             msg += " (read-only schema, technical table/column, or DDL/ATTACH/PRAGMA)" if writable else " (schema is read-only)"
         m = re.match(r"no such column: (.+)", msg)
         if m:
-            msg += f"   (text values need single quotes: '{m.group(1)}')"
+            msg += f"   (text values need single quotes: '{m.group(1)}'{'; backticks `…` are column names' if '`' in sql else ''})"
         print(f"SQL error: {msg}")
     finally:
         store.unguard(db)

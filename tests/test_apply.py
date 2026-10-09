@@ -231,3 +231,12 @@ def test_auto_sync_config():
     env = {"JIRA_SITE": "s", "JIRA_EMAIL": "e", "JIRA_API_TOKEN": "t"}
     assert Config.from_env(env).auto_sync
     assert not Config.from_env({**env, "ASSETS_AUTO_SYNC": "0"}).auto_sync
+
+
+def test_create_same_label_existing_other_system(cfg, jira, local):
+    db, meta = local
+    sql(db, meta, "INSERT INTO systems (name) VALUES ('Figma')")
+    sql(db, meta, "INSERT INTO roles (name, system) VALUES ('Admin', 'Figma')")  # 'Admin' exists for 2 other systems
+    res = run(cfg, jira, local)
+    assert res == {"applied": 2, "failed": 0, "aborted": None}
+    assert sum(1 for o in jira.of_type(11) if jira._label(o) == "Admin") == 3

@@ -240,12 +240,27 @@ def _aql_str(s):
     return '"' + str(s).replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
+def _same_object(t, p, row):
+    """True if an existing object matches every value of a planned CREATE (labels alone aren't unique:
+    e.g. roles 'Admin' of different systems), i.e. it is most likely this very object created earlier."""
+    cols = {c["col"]: c for c in t["cols"]}
+
+    def eq(a, b):
+        return a == b if a is None or b is None else str(a).lower() == str(b).lower()
+
+    for k, (_, new) in p["changes"].items():
+        c = cols[k]
+        if not (eq(new, norm(c, row[k])) or (c["kind"] == "Reference" and eq(new, norm(c, row.get(k + "_key"))))):
+            return False
+    return True
+
+
 def refresh(plan, client):
     """Compare base (last sync), local and live Jira for every item. Mutates the plan.
 
     UPDATE: a field changed in Jira since the sync is a conflict only if we change the same field to a different
     value; fields already equal to the target are dropped. DELETE: any change in Jira is a conflict.
-    CREATE: an object with the same label must not exist yet. Returns (conflicts, notes).
+    CREATE: an object with the same label and the same values must not exist yet. Returns (conflicts, notes).
     """
     conflicts, notes, keep = [], [], []
     plan.refreshed = []
@@ -255,8 +270,8 @@ def refresh(plan, client):
         if p["action"] == "CREATE":
             lc = label_col(t)
             if lc and p.get("name"):
-                hits = client.aql(f"objectTypeId = {int(t['id'])} AND {_aql_str(lc['name'])} = {_aql_str(p['name'])}", limit=5)
-                found = [o["objectKey"] for o in hits.get("values") or [] if str(o.get("label", "")).lower() == str(p["name"]).lower()]
+                hits = client.aql(f"objectTypeId = {int(t['id'])} AND {_aql_str(lc['name'])} = {_aql_str(p['name'])}", limit=50)
+                found = [o["objectKey"] for o in hits.get("values") or [] if _same_object(t, p, row_from_object(t, o))]
                 if found:
                     conflicts.append(f"{name}: already exists in Jira ({', '.join(found)}) — .sync to pick it up")
                     continue
