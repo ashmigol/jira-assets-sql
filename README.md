@@ -31,9 +31,14 @@ Python ≥ 3.9. The only dependency is `prompt_toolkit`, used for the interactiv
 ## Install
 
 ```sh
-pipx install git+https://github.com/<owner>/jira-assets-sql   # or: pip install -e .
-cp .env.example .env   # fill in, then export the variables in your shell profile
+brew install pipx                      # once (or: python3 -m pip install --user pipx)
+pipx install git+https://github.com/ashmigol/jira-assets-sql
 ```
+
+This puts the `assets` command on your PATH, in its own isolated environment. To update:
+`pipx upgrade jira-assets-sql`. To remove: `pipx uninstall jira-assets-sql`.
+
+Then set the environment variables below (e.g. in `~/.zshrc`) and run `assets`.
 
 ## Configuration
 
@@ -123,7 +128,9 @@ permissions and are git-ignored; don't commit them.
 ## Development
 
 ```sh
+git clone https://github.com/ashmigol/jira-assets-sql && cd jira-assets-sql
 python -m venv .venv && .venv/bin/pip install -e ".[dev]"
+pipx install --editable .              # optional: the `assets` command runs your working copy
 .venv/bin/pytest -q && .venv/bin/ruff check .
 ```
 
