@@ -121,7 +121,7 @@ def run(env=os.environ, ask=input, ask_secret=getpass.getpass, client_factory=Cl
     write_file(path, values)
     if keychain:
         tokens.keychain_set(site, email, token)
-        where = "token in macOS Keychain"
+        where = "token in the system keychain"
     else:
         where = f"token in {tokens.file_set(path, token)} (mode 600)"
     out(f"  ✓ Saved: {path}, {where}")

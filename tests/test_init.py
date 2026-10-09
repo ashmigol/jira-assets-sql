@@ -112,13 +112,46 @@ def test_no_config_tells_to_run_init(tmp_path):
         Config.load({"ASSETS_CONFIG": str(tmp_path / "none")})
 
 
-def test_keychain_token_goes_via_stdin(monkeypatch):
-    calls = []
+class MemoryKeyring:
+    """Stands in for the OS keychain; `limit` simulates a store that truncates (like `security -w` via stdin)."""
+    priority = 1
 
-    class R:
-        returncode, stdout, stderr = 0, "", ""
+    def __init__(self, limit=None):
+        self.data, self.limit = {}, limit
 
-    monkeypatch.setattr(tokens.subprocess, "run", lambda args, **kw: calls.append((args, kw)) or R())
-    tokens.keychain_set("https://s.atlassian.net", "h@example.com", "s3cret")
-    args, kw = calls[0]
-    assert "s3cret" not in " ".join(args) and kw["input"] == "s3cret\ns3cret\n"
+    def set_password(self, service, user, pw):
+        self.data[(service, user)] = pw[:self.limit] if self.limit else pw
+
+    def get_password(self, service, user):
+        return self.data.get((service, user))
+
+
+@pytest.fixture
+def mem_keyring(monkeypatch):
+    kr = MemoryKeyring()
+    monkeypatch.setattr(tokens.keyring, "get_keyring", lambda: kr)
+    monkeypatch.setattr(tokens.keyring, "set_password", kr.set_password)
+    monkeypatch.setattr(tokens.keyring, "get_password", kr.get_password)
+    return kr
+
+
+def test_long_token_round_trips_through_keychain(tmp_path, mem_keyring):
+    token = "A" * 192  # Atlassian API tokens are ~192 chars
+    tokens.keychain_set("https://s.atlassian.net", "h@example.com", token)
+    assert tokens.keychain_get("https://s.atlassian.net", "h@example.com") == token
+
+
+def test_truncating_keychain_is_detected(mem_keyring):
+    mem_keyring.limit = 128
+    with pytest.raises(OSError, match="different token"):
+        tokens.keychain_set("https://s.atlassian.net", "h@example.com", "A" * 192)
+
+
+def test_init_with_keychain_then_load(tmp_path, mem_keyring, monkeypatch):
+    FakeClient.tokens_ok = {"good-token", "B" * 192}
+    answers, out = ["s.atlassian.net", "h@example.com", "42", "42"], []
+    env = {"ASSETS_CONFIG": str(tmp_path / "config")}
+    init.run(env=env, ask=lambda p: answers.pop(0), ask_secret=lambda p: "B" * 192, client_factory=FakeClient,
+             keychain=True, out=out.append)
+    assert "token in" in "".join(out) and not os.path.exists(tokens.token_file(env["ASSETS_CONFIG"]))
+    assert Config.load(env).token == "B" * 192

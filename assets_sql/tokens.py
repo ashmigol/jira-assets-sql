@@ -1,10 +1,15 @@
-"""API token storage: macOS Keychain when available, otherwise a 0600 file next to the config."""
+"""API token storage: the OS keychain via `keyring` (macOS Keychain, Secret Service, Windows Credential Locker)
+when available, otherwise a 0600 file next to the config."""
 from __future__ import annotations
 
 import os
-import shutil
-import subprocess
-import sys
+
+try:
+    import keyring
+    from keyring.errors import KeyringError
+except ImportError:  # optional
+    keyring = None
+    KeyringError = Exception
 
 SERVICE = "jira-assets-sql"
 
@@ -14,23 +19,33 @@ def _service(site):
 
 
 def keychain_available():
-    return sys.platform == "darwin" and shutil.which("security") is not None
+    if keyring is None:
+        return False
+    try:
+        kr = keyring.get_keyring()
+    except Exception:
+        return False
+    return getattr(kr, "priority", 0) > 0 and type(kr).__module__ not in ("keyring.backends.fail", "keyring.backends.null")
 
 
 def keychain_get(site, email):
-    if not keychain_available() or not site or not email:
+    if not site or not email or not keychain_available():
         return None
-    r = subprocess.run(["security", "find-generic-password", "-s", _service(site), "-a", email, "-w"],
-                       capture_output=True, text=True)
-    return r.stdout.strip() or None if r.returncode == 0 else None
+    try:
+        return keyring.get_password(_service(site), email) or None
+    except KeyringError:
+        return None
 
 
 def keychain_set(site, email, token):
-    """Store via stdin (the token never appears in the process list)."""
-    r = subprocess.run(["security", "add-generic-password", "-s", _service(site), "-a", email, "-U", "-w"],
-                       input=f"{token}\n{token}\n", capture_output=True, text=True)
-    if r.returncode != 0:
-        raise OSError(f"Keychain: {r.stderr.strip() or r.returncode}")
+    """Store and read back: a store that silently changes the token (e.g. truncation) is an error."""
+    try:
+        keyring.set_password(_service(site), email, token)
+        back = keyring.get_password(_service(site), email)
+    except KeyringError as e:
+        raise OSError(f"keychain: {e}") from e
+    if back != token:
+        raise OSError("keychain returned a different token than was stored")
 
 
 def token_file(config_path):
