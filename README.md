@@ -38,11 +38,30 @@ pipx install git+https://github.com/ashmigol/jira-assets-sql
 This puts the `assets` command on your PATH, in its own isolated environment. To update:
 `pipx upgrade jira-assets-sql`. To remove: `pipx uninstall jira-assets-sql`.
 
-Then set the environment variables below (e.g. in `~/.zshrc`) and run `assets`.
+Then run the setup and start the shell:
+
+```
+$ assets init
+Jira site (example https://hogwarts.atlassian.net): hogwarts.atlassian.net
+Email: harry@hogwarts.example
+API token (create at https://id.atlassian.com/manage-profile/security/api-tokens):
+  Checking…
+  ✓ logged in as Harry Potter; Assets workspace …; 3 schema(s) visible
+Default schema ID (https://hogwarts.atlassian.net/jira/assets/object-schema/<THIS_NUMBER>): 42
+Writable schema ID (https://hogwarts.atlassian.net/jira/assets/object-schema/<THIS_NUMBER>) [empty = read-only]:
+  ✓ Saved: ~/.config/assets/config, token in macOS Keychain
+$ assets
+```
+
+Each answer is checked right away: a wrong token or an unknown schema id makes it ask again (a schema key such as
+`SYS` works too). Running `assets init` again shows the current values: Enter keeps a value, `-` clears it.
+`assets init --advanced` also asks for the workspace id, the data folder and auto-sync.
 
 ## Configuration
 
-All configuration comes from environment variables.
+`assets init` writes `~/.config/assets/config` and stores the token in the macOS Keychain (elsewhere: a `0600`
+file next to the config). Every setting can also come from an environment variable with the same name, which takes
+precedence over the file. This is handy for CI or for switching sites.
 
 | Variable | Required | Meaning |
 |---|---|---|

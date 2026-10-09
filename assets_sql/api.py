@@ -76,6 +76,23 @@ class Client:
     def api(self):
         return f"https://api.atlassian.com/jsm/assets/workspace/{self.workspace}/v1"
 
+    def myself(self):
+        """Current user; raises ApiError(401) for a wrong email/token."""
+        st, d = self.request("GET", f"{self.cfg.site}/rest/api/3/myself")
+        if st != 200:
+            raise ApiError(st, d)
+        return d
+
+    def schemas(self):
+        out, start = [], 0
+        while True:
+            d = self.call("GET", f"/objectschema/list?startAt={start}&maxResults=50")
+            values = d.get("values") or []
+            out += values
+            start += len(values)
+            if d.get("isLast", True) or not values or start >= d.get("total", start):
+                return out
+
     def object_types(self, schema):
         return self.call("GET", f"/objectschema/{schema}/objecttypes/flat")
 
