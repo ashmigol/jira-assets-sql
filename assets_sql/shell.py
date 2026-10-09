@@ -116,7 +116,10 @@ SHORT_DESCRIBE = re.compile(r"(?:describe|desc|show columns from|show columns in
 def handle_sql(db, meta, sql, mode, writable):
     short = re.sub(r"\s+", " ", sql.rstrip(";").strip()).lower()
     m = SHORT_DESCRIBE.fullmatch(short)
-    if short in ("show tables", "show table"):
+    word = re.sub(r"^assets\s+", "", short)
+    if word in ("sync", "plan", "apply", "reset") or (word != short and word in ("help", "tables", "quit")):
+        print(f"Inside the shell use .{word} (dot-commands, no ';').")
+    elif short in ("show tables", "show table"):
         tables_summary(db, meta)
     elif m:
         describe(meta, m.group(1))

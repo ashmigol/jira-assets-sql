@@ -114,3 +114,21 @@ def test_db_file_is_private(cfg, local):
     import os
     import stat
     assert stat.S_IMODE(os.stat(cfg.db_path(SCHEMA)).st_mode) == 0o600
+
+
+def test_shell_hints_dot_commands(local, capsys):
+    from assets_sql.shell import handle_sql
+    db, meta = local
+    for typed in ("assets sync;", "sync;", "assets plan;"):
+        handle_sql(db, meta, typed, "table", True)
+    out = capsys.readouterr().out
+    assert out.count("Inside the shell use .") == 3 and ".sync" in out and ".plan" in out
+
+
+def test_plan_output_one_field_per_line(local, capsys):
+    from assets_sql.plan import compute_plan, show_plan
+    db, meta = local
+    sql(db, meta, "INSERT INTO systems (name, labels) VALUES ('X', '" + "long text " * 20 + "')")
+    show_plan(compute_plan(db, meta))
+    out = capsys.readouterr().out
+    assert "(1 change)" in out and "│ labels" in out and "│ name" in out

@@ -30,7 +30,7 @@ def emit(lines):
     print("\n".join(lines))
 
 
-def print_table(headers, rows, mode="table", width=None):
+def print_table(headers, rows, mode="table", width=None, footer=None):
     if mode == "csv":
         w = csv.writer(sys.stdout)
         w.writerow(headers)
@@ -38,7 +38,7 @@ def print_table(headers, rows, mode="table", width=None):
         return
     if not headers:
         return
-    count = f"({len(rows)} row{'s' if len(rows) != 1 else ''})"
+    count = footer or f"({len(rows)} row{'s' if len(rows) != 1 else ''})"
     if mode == "vertical":
         pad = max(len(h) for h in headers)
         out = []

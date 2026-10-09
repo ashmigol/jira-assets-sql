@@ -141,16 +141,19 @@ def show_plan(plan):
         return
 
     def show(v):
-        return "∅" if v is None else fmt(v, 110)
+        return "∅" if v is None else str(v)
 
     rows = []
-    for p in plan.items:
-        if p["action"] == "UPDATE":
-            ch = "; ".join(f"{k}: {show(a)} → {show(b)}" for k, (a, b) in p["changes"].items())
-        else:
-            ch = "; ".join(f"{k}={show(b)}" for k, (_, b) in p["changes"].items())
-        rows.append([p["action"], p["type"]["table"], p["label"], ch])
-    print_table(["action", "table", "object", "changes"], rows, width=110)
+    for n, p in enumerate(plan.items):
+        if n:
+            rows.append([""] * 5)  # blank line between objects
+        head = [p["action"], p["type"]["table"], p["label"]]
+        if not p["changes"]:
+            rows.append(head + ["", ""])
+        for i, (k, (a, b)) in enumerate(p["changes"].items()):
+            rows.append((head if i == 0 else ["", "", ""]) + [k, f"{show(a)} → {show(b)}" if p["action"] == "UPDATE" else show(b)])
+    print_table(["action", "table", "object", "field", "value"], rows, width=80,
+                footer=f"({len(plan.items)} change{'s' if len(plan.items) != 1 else ''})")
 
 
 # ───────── resolving values for the API ─────────
