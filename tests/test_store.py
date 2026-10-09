@@ -132,3 +132,23 @@ def test_plan_output_one_field_per_line(local, capsys):
     show_plan(compute_plan(db, meta))
     out = capsys.readouterr().out
     assert "(1 change)" in out and "│ labels" in out and "│ name" in out
+
+
+def test_history_and_log_commands(cfg, local, capsys):
+    import json
+
+    from assets_sql import shell
+    if not shell.readline:
+        pytest.skip("no readline")
+    shell.readline.clear_history()
+    for h in ("SELECT 1;", "insert into roles (name) values ('x');", ".plan"):
+        shell.readline.add_history(h)
+    shell.show_history("insert")
+    shell.show_history("2")
+    with open(cfg.log_path, "w") as f:
+        f.write(json.dumps({"ts": "t1", "schema": "5", "action": "CREATE", "table": "roles", "object": "Admin",
+                            "status": "ok", "detail": "TST-1"}) + "\n")
+    shell.show_log(cfg, "")
+    out = capsys.readouterr().out
+    assert "insert into roles" in out and ".plan" in out and "TST-1" in out
+    assert out.count("SELECT 1;") == 0  # filtered by text, then only the last 2

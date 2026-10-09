@@ -1,6 +1,7 @@
 """Interactive SQL shell."""
 from __future__ import annotations
 
+import json
 import re
 import sqlite3
 
@@ -26,6 +27,8 @@ SQL (end with ;)          SELECT / INSERT / UPDATE / DELETE on the local copy
 .mode table|csv|vertical  output format (or end a query with \\G instead of ; for vertical)
 .pager on|off             wide/long tables open in `less -S` (←/→ scroll, q quit); default on
 show tables;  describe <table>;  show columns from <table>;   MySQL-style shortcuts
+.history [N | text]       your previous commands (last N, default 30, or those containing text); also ↑ and Ctrl+R
+.log [N]                  changes applied to Jira (changes.log), last N (default 20)
 .quit                     exit
 
 Columns are snake_case. A reference column holds the label of the referenced object, <column>_key holds its
@@ -110,6 +113,44 @@ def live_aql(client, meta, q, mode):
         print(f"(showing first {len(rows)} of {d.get('total')})")
 
 
+def history_lines():
+    if not readline:
+        return []
+    items = (readline.get_history_item(i) for i in range(1, readline.get_current_history_length() + 1))
+    return [h for h in items if h]
+
+
+def show_history(arg):
+    lines = list(enumerate(history_lines(), 1))
+    if arg and not arg.isdigit():
+        lines = [(n, h) for n, h in lines if arg.lower() in h.lower()]
+    else:
+        lines = lines[-(int(arg) if arg else 30):]
+    for n, h in lines:
+        print(f"{n:>5}  {h}")
+    if not lines:
+        print("No history." if not arg else f"Nothing matches {arg!r}.")
+
+
+def show_log(cfg, arg):
+    try:
+        with open(cfg.log_path) as f:
+            entries = [json.loads(line) for line in f if line.strip()]
+    except FileNotFoundError:
+        entries = []
+    entries = entries[-(int(arg) if arg.isdigit() else 20):]
+    if not entries:
+        print("Nothing applied yet.")
+        return
+    print_table(["time", "schema", "action", "table", "object", "status", "detail"],
+                [[e.get("ts"), e.get("schema"), e.get("action"), e.get("table"), e.get("object"), e.get("status"), e.get("detail")]
+                 for e in entries])
+
+
+def save_history(cfg):
+    save_history(cfg)
+
+
 SHORT_DESCRIBE = re.compile(r"(?:describe|desc|show columns from|show columns in) (\w+)")
 
 
@@ -117,7 +158,7 @@ def handle_sql(db, meta, sql, mode, writable):
     short = re.sub(r"\s+", " ", sql.rstrip(";").strip()).lower()
     m = SHORT_DESCRIBE.fullmatch(short)
     word = re.sub(r"^assets\s+", "", short)
-    if word in ("sync", "plan", "apply", "reset") or (word != short and word in ("help", "tables", "quit")):
+    if word in ("sync", "plan", "apply", "reset", "history", "log") or (word != short and word in ("help", "tables", "quit")):
         print(f"Inside the shell use .{word} (dot-commands, no ';').")
     elif short in ("show tables", "show table"):
         tables_summary(db, meta)
@@ -159,6 +200,7 @@ def shell(cfg, client, schema, auto_sync=True):
         s = line.strip()
         if not buf and not s:
             continue
+        save_history(cfg)  # every command, so closing the terminal doesn't lose the session
         if not buf and s.startswith("."):
             cmd, _, arg = s.partition(" ")
             arg = arg.strip()
@@ -186,6 +228,10 @@ def shell(cfg, client, schema, auto_sync=True):
                 elif cmd == ".mode":
                     mode = arg if arg in ("table", "csv", "vertical") else mode
                     print(f"mode = {mode}")
+                elif cmd == ".history":
+                    show_history(arg)
+                elif cmd == ".log":
+                    show_log(cfg, arg)
                 elif cmd == ".pager":
                     output.settings["pager"] = arg != "off"
                     print(f"pager = {'on' if output.settings['pager'] else 'off'}")

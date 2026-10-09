@@ -66,7 +66,7 @@ assets apply [--allow-delete] [--yes]
 ```
 
 Shell commands: `.tables`, `.schema [table]`, `.sync`, `.plan`, `.apply [--allow-delete]`, `.reset`,
-`.aql <query>` (live AQL), `.mode table|csv|vertical`, `.pager on|off`, `.help`. End a query with `\G` instead
+`.aql <query>` (live AQL), `.history [N|text]` (previous commands), `.log [N]` (changes applied to Jira), `.mode table|csv|vertical`, `.pager on|off`, `.help`. End a query with `\G` instead
 of `;` for vertical output. MySQL-style `show tables;` and `describe <table>;` work too.
 
 ### Table model
