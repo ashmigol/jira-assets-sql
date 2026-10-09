@@ -29,6 +29,7 @@ class Config:
     schema: Optional[str] = None         # default object schema id
     writable_schemas: frozenset = frozenset()  # empty = everything is read-only
     home: str = os.path.expanduser("~/.local/share/assets")
+    auto_sync: bool = True               # sync on start unless there are unapplied local changes
 
     @property
     def log_path(self) -> str:
@@ -65,5 +66,6 @@ class Config:
             workspace_id=env.get("ASSETS_WORKSPACE_ID", "").strip() or None,
             schema=check_schema(schema) if schema else None,
             writable_schemas=writable,
+            auto_sync=env.get("ASSETS_AUTO_SYNC", "1").strip().lower() not in ("0", "false", "no", "off"),
             home=os.path.expanduser(env.get("ASSETS_HOME", "").strip() or "~/.local/share/assets"),
         )

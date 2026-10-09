@@ -3,6 +3,7 @@
   assets                      interactive shell (schema from ASSETS_SCHEMA)
   assets --schema 42          another schema (read-only unless listed in ASSETS_WRITABLE_SCHEMAS)
   assets -c "SELECT ..."      run one statement against the local copy and exit
+  --no-sync                   don't refresh the local copy on start (shell / -c); also ASSETS_AUTO_SYNC=0
   assets sync                 refresh the local copy from Jira
   assets plan                 show unapplied local changes
   assets apply [--allow-delete] [--yes]
@@ -18,7 +19,7 @@ import sys
 from . import store
 from .api import ApiError, Client
 from .config import Config, ConfigError, check_schema
-from .plan import _ask, apply, compute_plan, show_plan
+from .plan import _ask, apply, compute_plan, open_fresh, show_plan
 from .shell import handle_sql, shell
 
 
@@ -28,6 +29,7 @@ def parse(argv):
     p.add_argument("-c", dest="sql", metavar="SQL", help="run one SQL statement and exit")
     p.add_argument("command", nargs="?", choices=["shell", "sync", "plan", "apply"], default="shell")
     p.add_argument("--allow-delete", action="store_true", help="apply: allow DELETEs")
+    p.add_argument("--no-sync", action="store_true", help="don't sync from Jira on start")
     p.add_argument("--yes", "-y", action="store_true", help="apply: don't ask for confirmation")
     return p.parse_args(argv)
 
@@ -42,9 +44,10 @@ def main(argv=None, env=None):
     except ConfigError as e:
         sys.exit(f"assets: {e}")
     client = Client(cfg)
+    auto_sync = cfg.auto_sync and not args.no_sync
     try:
         if args.sql:
-            db, meta = store.open_db(cfg, client, schema)
+            db, meta = open_fresh(cfg, client, schema) if auto_sync else store.open_db(cfg, client, schema)
             handle_sql(db, meta, args.sql, "table", cfg.is_writable(schema))
         elif args.command == "sync":
             store.open_db(cfg, client, schema, force_sync=True)
@@ -58,7 +61,7 @@ def main(argv=None, env=None):
             if res["aborted"] or res["failed"]:
                 sys.exit(1)
         else:
-            shell(cfg, client, schema)
+            shell(cfg, client, schema, auto_sync=auto_sync)
     except ApiError as e:
         sys.exit(f"assets: {e}")
     except KeyboardInterrupt:

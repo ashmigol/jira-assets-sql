@@ -7,7 +7,7 @@ import sqlite3
 from . import output, store
 from .api import ApiError
 from .output import print_table
-from .plan import apply, compute_plan, show_plan
+from .plan import apply, compute_plan, open_fresh, show_plan
 
 try:
     import readline
@@ -124,8 +124,8 @@ def handle_sql(db, meta, sql, mode, writable):
         run_sql(db, meta, sql, mode, writable)
 
 
-def shell(cfg, client, schema):
-    db, meta = store.open_db(cfg, client, schema)
+def shell(cfg, client, schema, auto_sync=True):
+    db, meta = open_fresh(cfg, client, schema) if auto_sync else store.open_db(cfg, client, schema)
     writable = cfg.is_writable(schema)
     synced = db.execute("SELECT v FROM _meta WHERE k='synced'").fetchone()[0]
     print(f"Assets schema {schema}{'' if writable else ' — READ-ONLY'}. Local copy synced {synced}. "

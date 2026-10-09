@@ -10,6 +10,7 @@ import datetime
 import json
 import os
 
+from . import store
 from .api import ApiError, TransportError
 from .output import fmt, print_table
 from .store import KEY_RE, label_col, row_from_object, table_of, write_row
@@ -293,6 +294,23 @@ def refresh(plan, client):
             keep.append(p)
     plan.items = keep
     return conflicts, notes
+
+
+# ───────── auto-sync ─────────
+
+def open_fresh(cfg, client, schema, log=print):
+    """Open the local copy and refresh it from Jira, unless it has unapplied local changes (a sync would drop them)."""
+    existed = os.path.exists(cfg.db_path(schema))
+    db, meta = store.open_db(cfg, client, schema, log=log)
+    if not existed:
+        return db, meta
+    pending = len(compute_plan(db, meta))
+    if pending:
+        log(f"Auto-sync skipped: {pending} unapplied local change(s) would be lost. .plan / .apply them, or .reset and .sync.")
+        return db, meta
+    meta, n = store.sync(db, client, schema)
+    log(f"Synced from Jira: {n} objects.")
+    return db, meta
 
 
 # ───────── apply ─────────

@@ -47,6 +47,7 @@ All configuration comes from environment variables.
 | `ASSETS_SCHEMA` | no | default object schema id (the number in `…/object-schema/<id>` URLs) |
 | `ASSETS_WRITABLE_SCHEMAS` | no | comma-separated schema ids that `apply` may change. **Empty = everything is read-only.** |
 | `ASSETS_WORKSPACE_ID` | no | auto-discovered from the site |
+| `ASSETS_AUTO_SYNC` | no | `0` = don't refresh the local copy on start (default: refresh, skipped while there are unapplied local changes) |
 | `ASSETS_HOME` | no | local copies, change log, backups, shell history (default `~/.local/share/assets`) |
 
 The write allowlist is the main safety switch: a schema that isn't in `ASSETS_WRITABLE_SCHEMAS` can be queried
@@ -58,6 +59,7 @@ but never modified, neither locally nor in Jira. Your Jira permissions still app
 assets                         interactive shell
 assets --schema 42             another schema
 assets -c "SELECT ..."         one statement against the local copy
+assets --no-sync               skip the refresh from Jira on start
 assets sync                    refresh the local copy from Jira
 assets plan                    show unapplied local changes
 assets apply [--allow-delete] [--yes]
@@ -69,6 +71,8 @@ of `;` for vertical output. MySQL-style `show tables;` and `describe <table>;` w
 
 ### Table model
 
+* The shell and `-c` refresh the local copy from Jira on start, unless it has unapplied changes (a sync would
+  drop them); then you get a warning instead.
 * Object type → table, attribute → column, both in `snake_case`.
 * Reference attribute `system` → column `system` (label of the referenced object) plus `system_key` (its key).
   To change a reference, set either one. A key in the label column (`system = 'ITSM-17'`) also works, which helps

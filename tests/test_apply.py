@@ -204,3 +204,30 @@ def test_remote_edit_not_reverted_after_declined_apply(cfg, jira, local):
     run(cfg, jira, local, confirm=lambda _: False)
     plan = compute_plan(db, meta)
     assert [p["changes"] for p in plan.items] == [{"criticality": ("High", "Low")}], "local edit kept, remote edit not reverted"
+
+
+# ───── auto-sync on start ─────
+
+def test_open_fresh_syncs_when_clean(cfg, jira, local):
+    from assets_sql.plan import open_fresh
+    jira.add(10, Name="Figma")  # created in Jira after the first sync
+    db, _ = open_fresh(cfg, jira, SCHEMA, log=lambda *a: None)
+    assert db.execute("SELECT count(*) FROM systems WHERE name = 'Figma'").fetchone()[0] == 1
+
+
+def test_open_fresh_keeps_unapplied_changes(cfg, jira, local):
+    from assets_sql.plan import open_fresh
+    db, meta = local
+    sql(db, meta, "INSERT INTO systems (name) VALUES ('Draft')")
+    jira.add(10, Name="Figma")
+    msgs = []
+    db, meta = open_fresh(cfg, jira, SCHEMA, log=msgs.append)
+    assert "Auto-sync skipped" in msgs[0]
+    assert [p["label"] for p in compute_plan(db, meta).items] == ["Draft"]
+
+
+def test_auto_sync_config():
+    from assets_sql.config import Config
+    env = {"JIRA_SITE": "s", "JIRA_EMAIL": "e", "JIRA_API_TOKEN": "t"}
+    assert Config.from_env(env).auto_sync
+    assert not Config.from_env({**env, "ASSETS_AUTO_SYNC": "0"}).auto_sync
