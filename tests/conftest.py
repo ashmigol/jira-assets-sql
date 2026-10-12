@@ -1,4 +1,5 @@
 """In-memory fake of the Jira Assets API (same interface as assets_sql.api.Client)."""
+import copy
 import itertools
 import re
 
@@ -52,6 +53,7 @@ class FakeJira:
         self.calls = []
         self.fail = {}  # (method, id-or-name) → exception to raise once
         self.clock = itertools.count(1)
+        self._attr_ids = itertools.count(500)
 
     # ── seeding / inspection ──
     def add(self, type_id, **values):
@@ -131,6 +133,24 @@ class FakeJira:
     def attributes(self, type_id):
         return [dict(a) for a in TYPES[int(type_id)][1]]
 
+    def reference_types(self, schema):
+        return [{"id": "1", "name": "Dependency"}, {"id": "4", "name": "Reference"}]
+
+    def create_attribute(self, type_id, body):
+        self.calls.append(("POST", f"attribute of {type_id}", body))
+        self._maybe_fail("ATTR", body["name"])
+        attrs = TYPES[int(type_id)][1]
+        if any(a["name"].lower() == body["name"].lower() for a in attrs):
+            raise ApiError(400, {"errors": {"name": "already exists"}})
+        kind = {0: "Text", 1: "Integer", 2: "Boolean", 3: "Double", 4: "Date", 6: "DateTime", 7: "URL", 8: "Email",
+                9: "Textarea"}.get(body.get("defaultTypeId"))
+        a = attr(next(self._attr_ids), body["name"], {1: "Reference", 2: "User"}.get(body["type"], kind))
+        if body["type"] == 1:
+            a["referenceObjectTypeId"] = int(body["typeValue"])
+            assert body["additionalValue"] == "4"
+        attrs.append(a)
+        return dict(a)
+
     def aql(self, query, start=0, limit=100):
         self.calls.append(("AQL", query))
         m = re.fullmatch(r'objectTypeId = (\d+)(?: AND "([^"]+)" = "((?:[^"\\]|\\.)*)")?', query)
@@ -196,7 +216,13 @@ class FakeJira:
 
 @pytest.fixture
 def jira():
-    j = FakeJira()
+    saved = copy.deepcopy(TYPES)  # create_attribute changes the type definitions
+    yield _seed(FakeJira())
+    TYPES.clear()
+    TYPES.update(saved)
+
+
+def _seed(j):
     pd = j.add(10, Name="Pandadoc", Criticality="High", Owner=["acc-alice"], Active="true")
     lk = j.add(10, Name="Lokalise", Criticality="Low", Active="false")
     j.add(11, Name="Admin", System=pd, Approver="acc-alice", **{"Google group": "pd-admins@example.com"})

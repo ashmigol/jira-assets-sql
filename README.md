@@ -118,8 +118,24 @@ Suggestions show up as you type, much like in Warp or an IDE:
   comma-separated.
 * New object: `INSERT` a row and leave `_id` NULL. New objects can reference each other by label; they are
   created in dependency order.
-* Columns starting with `_` and the shadow tables `_orig_*`/`_meta` are technical and read-only. DDL, `ATTACH`
-  and `PRAGMA` are blocked.
+* Columns starting with `_` and the shadow tables `_orig_*`/`_meta` are technical and read-only. Other DDL,
+  `ATTACH` and `PRAGMA` are blocked.
+
+### New fields
+
+```sql
+ALTER TABLE systems ADD COLUMN "Public comment" TEXT;
+UPDATE systems SET public_comment = 'Used by finance' WHERE name = 'Pandadoc';
+.plan     -- ADD FIELD systems public_comment "Public comment" Text, then the UPDATE
+.apply    -- creates the attribute in Jira first, then sets the values
+```
+
+* A quoted name is used as the Jira field name; an unquoted `public_comment` becomes `Public comment`.
+* Types: `TEXT`, `TEXTAREA`, `INTEGER`, `REAL`, `BOOLEAN`, `DATE`, `DATETIME`, `URL`, `EMAIL`, `USER`, or
+  `REFERENCES <table>` for a reference (reference type "Reference").
+* The column exists only locally until `.apply`; `.reset` removes it. Writable schemas only.
+* `apply` refuses if a field with the same name was created in Jira in the meantime.
+* Renaming and deleting fields isn't supported (deleting a field erases its values); do it in Jira, then `.sync`.
 
 ### What `apply` does
 
@@ -157,6 +173,7 @@ The tests run against an in-memory fake of the Assets API (`tests/conftest.py`) 
 
 ## Limitations / roadmap
 
-* Objects only: object types and attributes (schema structure) are read, not changed.
+* Schema structure: only new fields (`ALTER TABLE … ADD COLUMN`); object types, select fields and
+  renaming/deleting fields are managed in Jira.
 * Planned: saved plan files (`plan -out` / `apply <file>`), declarative mode (export to YAML, review in a PR,
   `plan`/`apply` from files), and scheduled drift detection in CI.

@@ -10,12 +10,12 @@ import datetime
 import json
 import os
 
-from . import store
+from . import fields, store
 from .api import ApiError, TransportError
 from .output import fmt, print_table
 from .store import KEY_RE, label_col, row_from_object, table_of, write_row
 
-ORDER = {"CREATE": 0, "UPDATE": 1, "DELETE": 2}
+ORDER = {"ADD FIELD": -1, "CREATE": 0, "UPDATE": 1, "DELETE": 2}
 
 
 class Plan:
@@ -78,6 +78,11 @@ def _label(t, row):
 
 def compute_plan(db, meta):
     plan = Plan()
+    for t in meta:
+        for c in t["cols"]:
+            if c.get("pending"):
+                plan.items.append({"action": "ADD FIELD", "type": t, "col": c, "id": None, "label": c["col"],
+                                   "changes": {}, "desc": fields.describe(c, meta)})
     for t in meta:
         table = t["table"]
         editable = [c for c in t["cols"] if c["editable"]]
@@ -147,6 +152,9 @@ def show_plan(plan):
     for n, p in enumerate(plan.items):
         if n:
             rows.append([""] * 5)  # blank line between objects
+        if p["action"] == "ADD FIELD":
+            rows.append([p["action"], p["type"]["table"], "", p["col"]["col"], p["desc"]])
+            continue
         head = [p["action"], p["type"]["table"], p["label"]]
         if not p["changes"]:
             rows.append(head + ["", ""])
@@ -211,6 +219,9 @@ class Resolver:
 
     def attrs(self, item, final=True):
         cols = {c["col"]: c for c in item["type"]["cols"]}
+        missing = [k for k in item["changes"] if cols[k]["id"] is None]
+        if missing:
+            raise ValueError(f"field(s) {', '.join(missing)} not created in Jira")
         return [{"objectTypeAttributeId": cols[k]["id"], "objectAttributeValues": self.values(cols[k], new, final)}
                 for k, (_, new) in item["changes"].items()]
 
@@ -267,6 +278,12 @@ def refresh(plan, client):
     for p in plan.items:
         t = p["type"]
         name = f"{t['table']} {p['label']}"
+        if p["action"] == "ADD FIELD":
+            if any(a["name"].lower() == p["col"]["name"].lower() for a in client.attributes(t["id"])):
+                conflicts.append(f"{t['table']}: field \"{p['col']['name']}\" already exists in Jira — .reset and .sync to pick it up")
+            else:
+                keep.append(p)
+            continue
         if p["action"] == "CREATE":
             lc = label_col(t)
             if lc and p.get("name"):
@@ -334,7 +351,7 @@ def open_fresh(cfg, client, schema, log=print):
 # ───────── apply ─────────
 
 def order(items):
-    """CREATEs in dependency order (referenced objects first), then UPDATEs, then DELETEs."""
+    """New fields, CREATEs in dependency order (referenced objects first), then UPDATEs, then DELETEs."""
     creates = [p for p in items if p["action"] == "CREATE"]
     names = {(p["type"]["table"], p["name"]) for p in creates}
     done, out = set(), []
@@ -346,7 +363,8 @@ def order(items):
             out.append(p)
             done.add((p["type"]["table"], p["name"]))
             creates.remove(p)
-    return out + sorted((p for p in items if p["action"] != "CREATE"), key=lambda p: ORDER[p["action"]])
+    return [p for p in items if p["action"] == "ADD FIELD"] + out + \
+        sorted((p for p in items if p["action"] in ("UPDATE", "DELETE")), key=lambda p: ORDER[p["action"]])
 
 
 def _ask(prompt):
@@ -409,8 +427,14 @@ def apply(cfg, client, db, meta, schema, allow_delete=False, confirm=_ask):
         t = p["type"]
         status, detail = None, ""
         try:
-            attrs = resolver.attrs(p) if p["action"] != "DELETE" else None
-            if p["action"] == "CREATE":
+            attrs = resolver.attrs(p) if p["action"] in ("CREATE", "UPDATE") else None
+            if p["action"] == "ADD FIELD":
+                col = p["col"]
+                refs = client.reference_types(schema) if col["kind"] == "Reference" else None
+                r = client.create_attribute(t["id"], fields.body(col, refs))
+                p["id"] = r["id"]
+                detail = f"\"{col['name']}\" (attribute {r['id']})"
+            elif p["action"] == "CREATE":
                 r = client.create_object(t["id"], attrs)
                 p["id"] = str(r["id"])
                 resolver.created[(t["table"], p["name"])] = r.get("objectKey")
@@ -430,7 +454,12 @@ def apply(cfg, client, db, meta, schema, allow_delete=False, confirm=_ask):
             status, detail = "unknown", str(e)
         except ApiError as e:
             status, detail = "failed", str(e)
-        if status == "ok":
+        if status == "ok" and p["action"] == "ADD FIELD":
+            p["col"]["id"] = p["id"]
+            del p["col"]["pending"]
+            store.save_meta(db, meta)
+            res["applied"] += 1
+        elif status == "ok":
             _mark_applied(db, client, p)
             res["applied"] += 1
         else:

@@ -99,6 +99,12 @@ class Client:
     def attributes(self, type_id):
         return self.call("GET", f"/objecttype/{type_id}/attributes")
 
+    def reference_types(self, schema):
+        return self.call("GET", f"/objectschema/{schema}/referencetypes")
+
+    def create_attribute(self, type_id, body):
+        return self.call("POST", f"/objecttypeattribute/{type_id}", body)
+
     def aql(self, query, start=0, limit=100):
         return self.call("POST", f"/object/aql?startAt={start}&maxResults={limit}&includeAttributes=true", {"qlQuery": query})
 

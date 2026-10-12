@@ -5,7 +5,7 @@ import json
 import re
 import sqlite3
 
-from . import output, store
+from . import fields, output, store
 from .api import ApiError
 from .complete import Context
 from .output import print_table
@@ -14,6 +14,8 @@ from .reader import make_reader
 
 HELP = """
 SQL (end with ;)          SELECT / INSERT / UPDATE / DELETE on the local copy
+ALTER TABLE t ADD COLUMN "Field name" TEXT;   new field (created in Jira by .apply); types:
+                          TEXT TEXTAREA INTEGER REAL BOOLEAN DATE DATETIME URL EMAIL USER, or REFERENCES <table>
 .tables                   tables with row counts
 .schema [table]           columns: name, kind, editable, options
 .sync                     reload from Jira (drops unapplied local changes)
@@ -52,7 +54,8 @@ def describe(meta, name=None):
         found = True
         print(f"{t['table']}  (\"{t['name']}\", type {t['id']})")
         print_table(["column", "attribute", "kind", "editable", "options/ref"],
-                    [[c["col"], c["name"], c["kind"] + (" [multi]" if c["multi"] else "") + (" *" if c["required"] else ""),
+                    [[c["col"], c["name"] + (" (new, not in Jira yet)" if c.get("pending") else ""),
+                      c["kind"] + (" [multi]" if c["multi"] else "") + (" *" if c["required"] else ""),
                       "yes" if c["editable"] else "",
                       ", ".join(c["options"]) or ((store.table_of(meta, c["ref"]) or {}).get("table", "") if c["ref"] else "")]
                      for c in t["cols"]])
@@ -142,12 +145,37 @@ def show_log(cfg, arg):
 SHORT_DESCRIBE = re.compile(r"(?:describe|desc|show columns from|show columns in) (\w+)")
 
 
+def alter_table(db, meta, sql, writable):
+    if not writable:
+        print("Schema is read-only: fields can't be added.")
+        return
+    try:
+        table, name, kind, ref = fields.parse_alter(sql)
+        t = next((x for x in meta if x["table"] == table), None)
+        if not t:
+            raise ValueError(f"no table {table!r}")
+        ref_t = None
+        if ref:
+            ref_t = next((x for x in meta if x["table"] == ref), None)
+            if not ref_t:
+                raise ValueError(f"no table {ref!r} to reference")
+        col = fields.new_column(t, name, kind, ref_t)
+    except ValueError as e:
+        print(f"SQL error: {e}")
+        return
+    store.add_column(db, meta, t, col)
+    print(f"OK: {table}.{col['col']} added locally ({fields.describe(col, meta)}) — set values, then .plan / .apply "
+          "creates the field in Jira")
+
+
 def handle_sql(db, meta, sql, mode, writable):
     short = re.sub(r"\s+", " ", sql.rstrip(";").strip()).lower()
     m = SHORT_DESCRIBE.fullmatch(short)
     word = re.sub(r"^assets\s+", "", short)
     if word in ("sync", "plan", "apply", "reset", "history", "log") or (word != short and word in ("help", "tables", "quit")):
         print(f"Inside the shell use .{word} (dot-commands, no ';').")
+    elif fields.ALTER.match(sql):
+        alter_table(db, meta, sql, writable)
     elif short in ("show tables", "show table"):
         tables_summary(db, meta)
     elif m:
@@ -204,6 +232,7 @@ def shell(cfg, client, schema, auto_sync=True, fancy=True):
                     ctx.reset(meta)
                 elif cmd == ".reset":
                     store.reset(db, meta)
+                    ctx.reset(meta)
                     print("Local changes discarded.")
                 elif cmd == ".aql":
                     live_aql(client, meta, arg, mode)

@@ -109,11 +109,14 @@ def columns(t):
     return out
 
 
+def sql_type(c):
+    return "INTEGER" if c["kind"] in ("Boolean", "Integer") else ("REAL" if c["kind"] == "Double" else "TEXT COLLATE NOCASE")
+
+
 def ddl(t, prefix=""):
     cols = ['"_id" TEXT', '"_type" TEXT']
     for c in t["cols"]:
-        typ = "INTEGER" if c["kind"] in ("Boolean", "Integer") else ("REAL" if c["kind"] == "Double" else "TEXT COLLATE NOCASE")
-        cols.append(f'"{c["col"]}" {typ}')
+        cols.append(f'"{c["col"]}" {sql_type(c)}')
         if c["kind"] == "Reference":
             cols.append(f'"{c["col"]}_key" TEXT COLLATE NOCASE')
     return f'CREATE TABLE "{prefix}{t["table"]}" ({", ".join(cols)})'
@@ -171,7 +174,40 @@ def load_local_meta(db):
     return json.loads(db.execute("SELECT v FROM _meta WHERE k='meta'").fetchone()[0])
 
 
+def save_meta(db, meta):
+    db.execute("UPDATE _meta SET v = ? WHERE k = 'meta'", (json.dumps(meta),))
+    db.commit()
+
+
+def add_column(db, meta, t, col):
+    """Add a not-yet-created field to the local copy (both the table and its `_orig_` twin, as NULLs)."""
+    t["cols"].append(col)
+    for prefix in ("", "_orig_"):
+        db.execute(f'ALTER TABLE "{prefix}{t["table"]}" ADD COLUMN "{col["col"]}" {sql_type(col)}')
+        if col["kind"] == "Reference":
+            db.execute(f'ALTER TABLE "{prefix}{t["table"]}" ADD COLUMN "{col["col"]}_key" TEXT COLLATE NOCASE')
+    save_meta(db, meta)
+
+
+def _drop_pending(db, meta):
+    """Forget fields that were added locally but not created in Jira; rebuild their tables without them."""
+    for t in meta:
+        if not any(c.get("pending") for c in t["cols"]):
+            continue
+        t["cols"] = [c for c in t["cols"] if not c.get("pending")]
+        cols = ", ".join(f'"{c}"' for c in columns(t))
+        for prefix in ("", "_orig_"):
+            name = prefix + t["table"]
+            db.execute(f'ALTER TABLE "{name}" RENAME TO "_tmp_{name}"')
+            db.execute(ddl(t, prefix))
+            db.execute(f'INSERT INTO "{name}" ({cols}) SELECT {cols} FROM "_tmp_{name}"')
+            db.execute(f'DROP TABLE "_tmp_{name}"')
+    save_meta(db, meta)
+
+
 def reset(db, meta):
+    """Discard local changes: new fields, then rows (restore the last synced copy)."""
+    _drop_pending(db, meta)
     for t in meta:
         db.execute(f'DELETE FROM "{t["table"]}"')
         db.execute(f'INSERT INTO "{t["table"]}" SELECT * FROM "_orig_{t["table"]}"')

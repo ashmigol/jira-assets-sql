@@ -10,7 +10,7 @@ import re
 from typing import NamedTuple
 
 KEYWORDS = ("SELECT FROM WHERE JOIN LEFT ON AND OR NOT NULL IS IN LIKE ORDER BY GROUP HAVING LIMIT AS DISTINCT COUNT "
-            "INSERT INTO VALUES UPDATE SET DELETE").split()
+            "INSERT INTO VALUES UPDATE SET DELETE ALTER TABLE ADD COLUMN REFERENCES").split()
 DOT_COMMANDS = (".help .tables .schema .sync .plan .apply .reset .aql .mode .pager .history .log .quit").split()
 TECH_HIDDEN = ("_id", "_type")
 
